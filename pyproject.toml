@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "bg-imap-mcp-server"
+version = "0.1.0"
+description = "Read-only, configurable IMAP MCP server"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+dependencies = ["mcp>=1.28,<2", "python-dotenv>=1.0,<2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8,<10"]
+
+[project.scripts]
+bg-imap-mcp = "bg_imap_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/bg_imap_mcp"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
