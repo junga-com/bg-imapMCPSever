@@ -15,3 +15,5 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: python -m pip install -e '.[dev]'
       - run: pytest -q
+        env:
+          BG_IMAP_DOVECOT_TESTS: "1"

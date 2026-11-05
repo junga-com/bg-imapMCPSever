@@ -5,7 +5,8 @@ from mcp.server.fastmcp.exceptions import ToolError
 from bg_imap_mcp import server
 
 EXPECTED_TOOLS = {"check_connection", "list_folders", "folder_status", "list_messages", "search_messages",
-                  "read_message"}
+                  "read_message", "search_messages_advanced", "get_messages_batch", "get_message_headers",
+                  "get_mailbox_inventory", "get_mailbox_changes"}
 
 
 def test_tools_are_registered_read_only():
@@ -32,3 +33,11 @@ def test_default_folder_from_settings(monkeypatch):
     monkeypatch.setattr(server.IMAPClient, "status", lambda self, folder: seen.setdefault("folder", folder))
     anyio.run(server.mcp.call_tool, "folder_status", {})
     assert seen["folder"] == "Archive"
+
+
+def test_new_tool_schemas():
+    tools = {t.name: t for t in anyio.run(server.mcp.list_tools)}
+    adv = tools["search_messages_advanced"].inputSchema["properties"]
+    assert {"date_from", "date_to", "sender", "recipient", "seen", "cursor", "sort"} <= set(adv)
+    assert tools["get_messages_batch"].inputSchema["required"] == ["uids"]
+    assert "checkpoint" in tools["get_mailbox_changes"].inputSchema["properties"]

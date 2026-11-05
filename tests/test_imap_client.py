@@ -163,8 +163,9 @@ class FakeConn:
         uidset, items = args[1], args[2]
         out = []
         for i, uid in enumerate(uidset.split(","), 1):
-            if items == "(UID FLAGS RFC822.SIZE)":
-                out.append(f"{i} (UID {uid} FLAGS () RFC822.SIZE {self.size})".encode())
+            if "BODY" not in items:  # metadata-only fetch
+                out.append(f'{i} (UID {uid} FLAGS () RFC822.SIZE {self.size} '
+                           f'INTERNALDATE "04-Nov-2026 23:00:30 +0000")'.encode())
             else:
                 raw = sample_email(f"msg {uid}")
                 out += [(f"{i} (UID {uid} FLAGS () RFC822.SIZE {len(raw)} BODY[] {{{len(raw)}}}".encode(), raw),
@@ -281,9 +282,39 @@ def test_login_errors_do_not_leak_password(monkeypatch, password, match):
     assert FakeIMAP.instances[-1].logged_out
 
 
-def test_imap_errors_wrapped_and_connection_closed(monkeypatch):
+@pytest.mark.parametrize("exc,code", [(TimeoutError("timed out"), "IMAP_TIMEOUT"),
+                                      (ConnectionResetError(), "IMAP_CONNECTION_ERROR"),
+                                      (imaplib.IMAP4.abort("socket error"), "IMAP_ERROR")])
+def test_imap_errors_wrapped_and_connection_closed(monkeypatch, exc, code):
     monkeypatch.setattr(imap_client.imaplib, "IMAP4_SSL", FakeIMAP)
-    with pytest.raises(MailError, match="IMAP connection error"):
+    with pytest.raises(MailError) as info:
         with IMAPClient(Settings("h", 993, "u", "good")).connect():
-            raise TimeoutError("timed out")
+            raise exc
+    assert info.value.code == code and str(info.value).startswith(code + ": ")
     assert FakeIMAP.instances[-1].logged_out
+
+
+def test_connect_retries_transient_failures(monkeypatch):
+    calls = []
+
+    def flaky(*a, **kw):
+        calls.append(1)
+        if len(calls) < 3:
+            raise ConnectionRefusedError()
+        return FakeIMAP()
+    monkeypatch.setattr(imap_client.imaplib, "IMAP4_SSL", flaky)
+    monkeypatch.setattr(imap_client.time, "sleep", lambda s: None)
+    with IMAPClient(Settings("h", 993, "u", "good")).connect():
+        pass
+    assert len(calls) == 3
+
+
+def test_connect_gives_up_with_code(monkeypatch):
+    def down(*a, **kw):
+        raise ConnectionRefusedError()
+    monkeypatch.setattr(imap_client.imaplib, "IMAP4_SSL", down)
+    monkeypatch.setattr(imap_client.time, "sleep", lambda s: None)
+    with pytest.raises(MailError) as info:
+        with IMAPClient(Settings("h", 993, "u", "good")).connect():
+            pass
+    assert info.value.code == "IMAP_CONNECTION_ERROR"
