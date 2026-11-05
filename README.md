@@ -49,9 +49,34 @@ bg-imap-mcp --transport streamable-http --host 127.0.0.1 --port 8765
 
 Then connect Inspector to `http://127.0.0.1:8765/mcp` using **Streamable HTTP**, and call `check_connection` and `folder_status` first. The HTTP endpoint is **not authenticated**; it is deliberately restricted to loopback. Never expose it directly to the Internet or bind to `0.0.0.0`.
 
-## ChatGPT integration
+## Remote access (ChatGPT) with built-in OAuth
 
-A local `127.0.0.1` server on horsetooth is not directly reachable from ChatGPT's cloud. To use this server from ChatGPT, deploy a properly authenticated HTTPS MCP endpoint or place it behind a trusted tunnel/reverse proxy that provides authentication and access controls. **A tunnel alone without authentication is insufficient.** Test locally before building this integration. ChatGPT custom connectors and workspace policies may require additional configuration.
+ChatGPT's custom MCP connectors need a public HTTPS URL and OAuth (or no auth at all; never use that here). The server includes a small single-owner OAuth 2.1 authorization server, enabled by setting `OAUTH_ISSUER_URL`:
+
+- Dynamic client registration is open, as ChatGPT requires, but redirect URIs must be on an allowlisted origin (`OAUTH_ALLOWED_REDIRECT_ORIGINS`, default `https://chatgpt.com`), so authorization codes can only be delivered there.
+- Authorization shows a consent page that requires the **owner passphrase** (stored only as an scrypt hash). Five failures in 15 minutes lock sign-in for everyone; three on one attempt cancel it.
+- PKCE (S256) is mandatory. Codes are single use and last 5 minutes. Access tokens last 1 hour and are bound to `<issuer>/mcp`; refresh tokens last 30 days and rotate, and replaying a rotated refresh token revokes the whole grant.
+- Codes and tokens are stored only as SHA-256 hashes in a mode-600 SQLite file (`OAUTH_STATE_DB`).
+- The server still binds only to loopback. Publish it with a TLS tunnel that terminates on this machine, e.g. Tailscale Funnel.
+
+Setup with Tailscale Funnel (port 8443 leaves any existing `tailscale serve` on 443 alone):
+
+```bash
+bg-imap-mcp-auth set-password            # prompts; writes OAUTH_OWNER_PASSWORD_HASH to .env
+echo 'OAUTH_ISSUER_URL=https://<machine>.<tailnet>.ts.net:8443' >> .env
+bg-imap-mcp --transport streamable-http --port 8765
+tailscale funnel --bg --https=8443 http://127.0.0.1:8765
+```
+
+Then in ChatGPT add a custom MCP server with URL `https://<machine>.<tailnet>.ts.net:8443/mcp` and OAuth authentication, and approve on the consent page.
+
+Operations:
+
+- `bg-imap-mcp-auth status` lists registered clients and active grants.
+- `bg-imap-mcp-auth revoke-all [--clients]` revokes every token immediately (a kill switch).
+- `tailscale funnel --https=8443 off` takes the endpoint off the Internet.
+
+When OAuth is enabled, local clients must use OAuth too (MCP Inspector supports it); use the stdio transport for unauthenticated local use.
 
 ## Configuration
 
@@ -78,7 +103,8 @@ A local `127.0.0.1` server on horsetooth is not directly reachable from ChatGPT'
 - Attachment contents and HTML originals are not exposed; HTML-only mail gets a basic plaintext extraction.
 - The current version connects separately for each tool call. No caching or incremental synchronization.
 - `read_message` requires the UID **and folder** returned from search/list; IMAP UIDs are scoped to a folder and can be invalidated if its UIDVALIDITY changes.
-- Local HTTP transport uses no authorization and must never be made public directly.
+- Without `OAUTH_ISSUER_URL` the HTTP transport has no authorization and rejects any non-loopback `Host` header; never publish it in that mode.
+- The OAuth server is single-owner and not independently audited. Pending authorizations and the sign-in lockout are kept in memory and reset on restart.
 
 ## Development
 

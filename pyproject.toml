@@ -16,6 +16,7 @@ dev = ["pytest>=8,<10"]
 
 [project.scripts]
 bg-imap-mcp = "bg_imap_mcp.server:main"
+bg-imap-mcp-auth = "bg_imap_mcp.oauth:admin_main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/bg_imap_mcp"]
