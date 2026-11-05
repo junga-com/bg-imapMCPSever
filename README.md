@@ -5,13 +5,14 @@ Read-only MCP server for any standard IMAP-over-TLS mailbox, intended for person
 ## Features
 
 - `check_connection`: verify IMAP TLS/login
-- `list_folders`: list server folder entries
-- `folder_status`: total and unread counts
-- `list_messages`: latest headers/UIDs, optionally unread-only
-- `search_messages`: plain-text IMAP `TEXT` search, optionally unread-only
-- `read_message`: subject, sender, recipients, date, text body, attachment names/types/sizes
-- Read-only by design: uses `EXAMINE` / `select(readonly=True)` and `BODY.PEEK`; no delete, flag, move or send operations
-- Configurable message-size and result caps
+- `list_folders`: folder names (decoded from IMAP modified UTF-7), hierarchy delimiter and flags
+- `folder_status`: total and unread counts plus `UIDVALIDITY`
+- `list_messages`: latest headers/UIDs with seen flag and size, optionally unread-only
+- `search_messages`: plain-text IMAP search in `text` (default), `subject`, `from`, `to` or `body`, optionally unread-only; non-ASCII queries are sent as UTF-8
+- `read_message`: subject, sender, recipients, date, text body, attachment names/types/sizes; optional `uidvalidity` check rejects stale UIDs
+- Read-only by design: uses `EXAMINE` / `select(readonly=True)` and `BODY.PEEK`; no delete, flag, move or send operations. All tools carry the MCP `readOnlyHint` annotation.
+- List/search fetch only selected header fields (one round trip), never full messages
+- Configurable message-size and result caps; folder arguments default to `IMAP_DEFAULT_FOLDER`
 
 **Security:** Email bodies can contain prompt injection. Treat mailbox content as untrusted. The server does not intentionally modify mail, but connecting to a remote service still exposes sensitive mail contents to whichever MCP clients you authorize. This project has not been independently security-audited.
 
@@ -60,19 +61,20 @@ A local `127.0.0.1` server on horsetooth is not directly reachable from ChatGPT'
 | `IMAP_PORT` | `993` | TLS IMAP port |
 | `IMAP_USERNAME` | required | Mailbox login |
 | `IMAP_PASSWORD` | required | Mailbox/app password |
-| `IMAP_DEFAULT_FOLDER` | `INBOX` | Reserved default folder setting |
-| `IMAP_TIMEOUT` | `20` | IMAP socket timeout (seconds) |
+| `IMAP_DEFAULT_FOLDER` | `INBOX` | Folder used when a tool call omits `folder` |
+| `IMAP_TIMEOUT` | `20` | IMAP socket inactivity timeout (seconds) |
 | `IMAP_MAX_RESULTS` | `50` | Hard cap for listing/search results |
 | `IMAP_MAX_BODY_CHARS` | `20000` | Cap on returned message body characters |
 | `IMAP_MAX_MESSAGE_BYTES` | `3000000` | Cap on fetched message size (see note below) |
 
-**Size note:** the message-byte limit is checked after the server returns the full message, so it is *not* a download-bandwidth guard. Avoid reading unusually large messages. Attachment contents are not returned, but the MIME parser processes the full message.
+**Size note:** `read_message` checks the server-reported `RFC822.SIZE` before downloading, so messages over `IMAP_MAX_MESSAGE_BYTES` are refused without being transferred. Attachment contents are not returned, but the MIME parser processes the full message.
+
+**Body note:** the `text/plain` part is preferred; if it is a short stub (as in much bulk mail) and an HTML part has substantially more text, the HTML is converted to text instead. `body_source` reports which was used.
 
 ### Known limitations
 
-- The search API uses simple `TEXT` search; not Gmail syntax or multi-field boolean expressions.
+- Search is a single-field IMAP substring search; not Gmail syntax or boolean expressions. Full-text (`text`/`body`) searches of large folders can take tens of seconds on the server; `subject`/`from`/`to` are much faster.
 - Search/list return the newest UIDs, not necessarily the newest Date headers.
-- Server folder listings are raw IMAP LIST entries rather than decoded folder names.
 - Attachment contents and HTML originals are not exposed; HTML-only mail gets a basic plaintext extraction.
 - The current version connects separately for each tool call. No caching or incremental synchronization.
 - `read_message` requires the UID **and folder** returned from search/list; IMAP UIDs are scoped to a folder and can be invalidated if its UIDVALIDITY changes.
