@@ -59,16 +59,16 @@ ChatGPT's custom MCP connectors need a public HTTPS URL and OAuth (or no auth at
 - Codes and tokens are stored only as SHA-256 hashes in a mode-600 SQLite file (`OAUTH_STATE_DB`).
 - The server still binds only to loopback. Publish it with a TLS tunnel that terminates on this machine, e.g. Tailscale Funnel.
 
-Setup with Tailscale Funnel (port 8443 leaves any existing `tailscale serve` on 443 alone):
+Setup with Tailscale Funnel. **Use port 443**: ChatGPT does not connect to MCP servers on other ports (with `:8443` it fails with "Couldn't discover OAuth settings" and never sends a request). Funnel is enabled per port, so move any tailnet-only `tailscale serve` on 443 to another port first (e.g. `sudo tailscale serve --https=443 off && sudo tailscale serve --bg --https=8443 http://127.0.0.1:<port>`).
 
 ```bash
 bg-imap-mcp-auth set-password            # prompts; writes OAUTH_OWNER_PASSWORD_HASH to .env
-echo 'OAUTH_ISSUER_URL=https://<machine>.<tailnet>.ts.net:8443' >> .env
+echo 'OAUTH_ISSUER_URL=https://<machine>.<tailnet>.ts.net' >> .env
 bg-imap-mcp --transport streamable-http --port 8765
-tailscale funnel --bg --https=8443 http://127.0.0.1:8765
+sudo tailscale funnel --bg --https=443 http://127.0.0.1:8765
 ```
 
-Then in ChatGPT add a custom MCP server with URL `https://<machine>.<tailnet>.ts.net:8443/mcp` and OAuth authentication, and approve on the consent page.
+Then in ChatGPT add a custom MCP server with URL `https://<machine>.<tailnet>.ts.net/mcp` and OAuth authentication, and approve on the consent page.
 
 Run it as a service (systemd user unit; survives reboots with lingering enabled):
 
@@ -83,7 +83,7 @@ Operations:
 
 - `bg-imap-mcp-auth status` lists registered clients and active grants.
 - `bg-imap-mcp-auth revoke-all [--clients]` revokes every token immediately (a kill switch).
-- `tailscale funnel --https=8443 off` takes the endpoint off the Internet; `systemctl --user stop bg-imap-mcp` stops the server.
+- `sudo tailscale funnel --https=443 off` takes the endpoint off the Internet; `systemctl --user stop bg-imap-mcp` stops the server.
 - After `bg-imap-mcp-auth set-password` or `.env` changes: `systemctl --user restart bg-imap-mcp`.
 
 When OAuth is enabled, local clients must use OAuth too (MCP Inspector supports it); use the stdio transport for unauthenticated local use.
