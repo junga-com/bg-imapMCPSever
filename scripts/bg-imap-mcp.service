@@ -1,0 +1,21 @@
+# systemd user service. Install with:
+#   mkdir -p ~/.config/systemd/user && cp scripts/bg-imap-mcp.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now bg-imap-mcp
+#   loginctl enable-linger "$USER"   # keep it running when you're logged out
+# Configuration (IMAP and optional OAuth) is read from .env in the repository.
+# Logs: journalctl --user -u bg-imap-mcp -f
+[Unit]
+Description=Read-only IMAP MCP server (loopback :8765)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/github/bg-imapMCPSever
+ExecStart=%h/github/bg-imapMCPSever/.venv/bin/bg-imap-mcp --transport streamable-http --host 127.0.0.1 --port 8765
+Environment=PYTHONUNBUFFERED=1
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target

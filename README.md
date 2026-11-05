@@ -70,11 +70,21 @@ tailscale funnel --bg --https=8443 http://127.0.0.1:8765
 
 Then in ChatGPT add a custom MCP server with URL `https://<machine>.<tailnet>.ts.net:8443/mcp` and OAuth authentication, and approve on the consent page.
 
+Run it as a service (systemd user unit; survives reboots with lingering enabled):
+
+```bash
+mkdir -p ~/.config/systemd/user && cp scripts/bg-imap-mcp.service ~/.config/systemd/user/
+systemctl --user daemon-reload && systemctl --user enable --now bg-imap-mcp
+loginctl enable-linger "$USER"
+journalctl --user -u bg-imap-mcp -f       # logs
+```
+
 Operations:
 
 - `bg-imap-mcp-auth status` lists registered clients and active grants.
 - `bg-imap-mcp-auth revoke-all [--clients]` revokes every token immediately (a kill switch).
-- `tailscale funnel --https=8443 off` takes the endpoint off the Internet.
+- `tailscale funnel --https=8443 off` takes the endpoint off the Internet; `systemctl --user stop bg-imap-mcp` stops the server.
+- After `bg-imap-mcp-auth set-password` or `.env` changes: `systemctl --user restart bg-imap-mcp`.
 
 When OAuth is enabled, local clients must use OAuth too (MCP Inspector supports it); use the stdio transport for unauthenticated local use.
 
